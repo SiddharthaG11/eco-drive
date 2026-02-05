@@ -4,25 +4,29 @@ import { RouteOption } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
+// Extended RouteOption for internal handling of simulated status
+export interface EnhancedRouteOption extends RouteOption {
+  isSimulated?: boolean;
+}
+
 /**
  * Optimizes the route using Gemini 2.5 Flash with Google Maps grounding.
- * Handles cases where the model might refuse to provide specific granular data
- * by instructing it to estimate based on its internal knowledge.
+ * Gracefully handles 429 Quota errors by returning high-quality simulated data.
  */
 export async function optimizeRoute(
   destination: string, 
   currentBattery: number, 
   userLocation?: { latitude: number; longitude: number }
-): Promise<RouteOption[]> {
+): Promise<EnhancedRouteOption[]> {
   try {
     const prompt = `You are an expert EV routing engine. 
     TASK: Find 3 potential routes to "${destination}" from ${userLocation ? `current coordinates [${userLocation.latitude}, ${userLocation.longitude}]` : 'the current location'}.
     
     1. Use Google Maps to get real-time routing and traffic.
-    2. IMPORTANT: The Maps tool may not provide elevation or battery details. You MUST use your internal knowledge of the terrain and EV physics to ESTIMATE the 'elevationGainM', 'elevationLossM', and 'estimatedBatteryConsumption'.
+    2. IMPORTANT: Use your internal knowledge of terrain to ESTIMATE 'elevationGainM', 'elevationLossM', and 'estimatedBatteryConsumption'.
     3. Ensure one route is "Eco-Optimal" (best for range), one is "Fastest", and one is "Balanced".
 
-    OUTPUT FORMAT: Return ONLY a raw JSON array. Do not apologize. Do not say "I cannot". If data is missing, provide your best realistic estimate.
+    OUTPUT FORMAT: Return ONLY a raw JSON array. Do not apologize. 
     
     Schema:
     [
@@ -67,41 +71,36 @@ export async function optimizeRoute(
     }
 
     if (!text || text.toLowerCase().includes("i am sorry") || text.toLowerCase().includes("cannot fulfill")) {
-      console.warn("Model refused or provided empty response. Triggering intelligent fallback.");
-      throw new Error("Refusal detected");
+      throw new Error("Refusal or empty response");
     }
 
-    // Extract JSON array using a robust regex
     const jsonMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
     const jsonString = jsonMatch ? jsonMatch[0] : text.trim();
 
-    try {
-      const routes: RouteOption[] = JSON.parse(jsonString);
-      
-      // Enrich with map URIs from grounding if available
-      const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-      if (groundingChunks && Array.isArray(routes)) {
-        routes.forEach((route) => {
-          const mapsChunk = groundingChunks.find(chunk => chunk.maps?.uri);
-          route.mapUri = mapsChunk?.maps?.uri || `https://www.google.com/maps/search/${encodeURIComponent(destination)}`;
-        });
-      }
-
-      return routes;
-    } catch (parseError) {
-      console.error("Parse error on text:", text);
-      throw parseError;
+    const routes: EnhancedRouteOption[] = JSON.parse(jsonString);
+    
+    // Enrich with map URIs from grounding if available
+    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    if (groundingChunks && Array.isArray(routes)) {
+      routes.forEach((route) => {
+        const mapsChunk = groundingChunks.find(chunk => chunk.maps?.uri);
+        route.mapUri = mapsChunk?.maps?.uri || `https://www.google.com/maps/search/${encodeURIComponent(destination)}`;
+        route.isSimulated = false;
+      });
     }
 
-  } catch (error) {
-    console.error("Gemini Route Optimization Error:", error);
+    return routes;
+
+  } catch (error: any) {
+    const isQuotaError = error?.message?.includes("quota") || error?.message?.includes("429");
+    console.warn(isQuotaError ? "API Quota Exceeded. Using Simulated Mode." : "Gemini Error:", error);
     
-    // Intelligent Fallback Data (Deterministic and high quality)
+    // Fallback Data (Simulated Mode)
     const baseConsumption = Math.min(currentBattery - 5, 12); 
     return [
       {
         id: "1",
-        name: "Eco-Regen Priority",
+        name: "Eco-Simulated Optimized",
         distanceKm: 18.5,
         durationMin: 24,
         elevationGainM: 30,
@@ -109,12 +108,13 @@ export async function optimizeRoute(
         trafficLevel: 'Low',
         estimatedBatteryConsumption: Number((baseConsumption * 0.8).toFixed(1)),
         isOptimal: true,
-        reasoning: "Synthetic optimization: Prioritizes side roads with significant downhill sections for maximum kinetic energy recovery via regenerative braking.",
+        isSimulated: true,
+        reasoning: "OFFLINE MODE: Simulated route calculated using localized elevation heuristics and standard EV power curves.",
         mapUri: `https://www.google.com/maps/search/${encodeURIComponent(destination)}`
       },
       {
         id: "2",
-        name: "Expressway Path",
+        name: "Simulated Direct",
         distanceKm: 21.2,
         durationMin: 18,
         elevationGainM: 55,
@@ -122,12 +122,13 @@ export async function optimizeRoute(
         trafficLevel: 'Moderate',
         estimatedBatteryConsumption: Number((baseConsumption * 1.2).toFixed(1)),
         isOptimal: false,
-        reasoning: "Standard highway routing. Higher speeds result in increased wind resistance and energy draw.",
+        isSimulated: true,
+        reasoning: "OFFLINE MODE: Estimated highway routing based on standard topology.",
         mapUri: `https://www.google.com/maps/search/${encodeURIComponent(destination)}`
       },
       {
         id: "3",
-        name: "City Balanced",
+        name: "Simulated Urban",
         distanceKm: 17.8,
         durationMin: 32,
         elevationGainM: 40,
@@ -135,7 +136,8 @@ export async function optimizeRoute(
         trafficLevel: 'High',
         estimatedBatteryConsumption: Number((baseConsumption * 1.5).toFixed(1)),
         isOptimal: false,
-        reasoning: "Urban route. Shortest distance but high consumption due to constant acceleration cycles in heavy traffic.",
+        isSimulated: true,
+        reasoning: "OFFLINE MODE: Inner city estimation. Expect higher consumption due to stop-and-go simulation.",
         mapUri: `https://www.google.com/maps/search/${encodeURIComponent(destination)}`
       }
     ];
@@ -153,6 +155,6 @@ export async function getEfficiencyTip(speed: number, battery: number): Promise<
     });
     return response.text.trim().replace(/^"|"$/g, '');
   } catch (error) {
-    return "Smooth throttle control extends your range.";
+    return "Optimize throttle for better range.";
   }
 }

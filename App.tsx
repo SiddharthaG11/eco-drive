@@ -3,15 +3,16 @@ import React, { useState, useEffect } from 'react';
 import Speedometer from './components/Speedometer';
 import MapOverlay from './components/MapOverlay';
 import { RouteOption, EVState, ChargingStop } from './types';
-import { optimizeRoute, getEfficiencyTip } from './services/geminiService';
+import { optimizeRoute, getEfficiencyTip, EnhancedRouteOption } from './services/geminiService';
 
-const MAX_VEHICLE_RANGE = 100; // Fixed MVP constraint: 100km per full charge
+const MAX_VEHICLE_RANGE = 100;
 
 const App: React.FC = () => {
-  const [routes, setRoutes] = useState<RouteOption[]>([]);
+  const [routes, setRoutes] = useState<EnhancedRouteOption[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isSimulated, setIsSimulated] = useState(false);
   const [destinationInput, setDestinationInput] = useState('VIT Chennai');
   const [activeDestination, setActiveDestination] = useState('VIT Chennai');
   const [efficiencyTip, setEfficiencyTip] = useState<string>('System Check: 100km Range Enforced');
@@ -27,12 +28,10 @@ const App: React.FC = () => {
     instantConsumptionKw: 0
   });
 
-  // Deterministic Logic: Adds stops every 100km
-  const processRangeFeasibility = (rawRoutes: RouteOption[]): RouteOption[] => {
+  const processRangeFeasibility = (rawRoutes: EnhancedRouteOption[]): EnhancedRouteOption[] => {
     return rawRoutes.map(route => {
       const stops: ChargingStop[] = [];
       if (route.distanceKm > MAX_VEHICLE_RANGE) {
-        // Calculate number of 100km blocks
         const numStops = Math.floor(route.distanceKm / MAX_VEHICLE_RANGE);
         for (let i = 1; i <= numStops; i++) {
           stops.push({
@@ -49,18 +48,18 @@ const App: React.FC = () => {
   const fetchRoutes = async (target: string, location?: { latitude: number, longitude: number }) => {
     setIsUpdating(true);
     try {
-      // Still using Gemini to get the "shape" of routes and elevation estimates
       const rawRoutes = await optimizeRoute(target, evState.batteryPercent, location);
-      
-      // Enforce the deterministic 100km rule on top of AI suggestions
       const routesWithStops = processRangeFeasibility(rawRoutes);
       
       setRoutes(routesWithStops);
+      setIsSimulated(routesWithStops.some(r => r.isSimulated));
+      
       const optimal = routesWithStops.find(r => r.isOptimal) || routesWithStops[0];
       setSelectedRouteId(optimal.id);
       setActiveDestination(target);
     } catch (error) {
-      console.error("Failed to fetch routes", error);
+      console.error("Critical Failure in Routing:", error);
+      // Even if everything fails, clear loading state
     } finally {
       setIsUpdating(false);
       setLoading(false);
@@ -78,11 +77,12 @@ const App: React.FC = () => {
         },
         (err) => {
           console.error("Location error:", err);
-          setIsUpdating(false);
           fetchRoutes(activeDestination, userLoc);
         },
-        { enableHighAccuracy: true }
+        { enableHighAccuracy: true, timeout: 5000 }
       );
+    } else {
+      fetchRoutes(activeDestination, userLoc);
     }
   };
 
@@ -101,15 +101,19 @@ const App: React.FC = () => {
     }, 1000);
 
     const tipTimer = setInterval(async () => {
-      const tip = await getEfficiencyTip(evState.currentSpeed, evState.batteryPercent);
-      setEfficiencyTip(tip);
+      if (!isSimulated) {
+        const tip = await getEfficiencyTip(evState.currentSpeed, evState.batteryPercent);
+        setEfficiencyTip(tip);
+      } else {
+        setEfficiencyTip("Drive smoothly to maximize your simulated range.");
+      }
     }, 25000);
 
     return () => {
       clearInterval(timer);
       clearInterval(tipTimer);
     };
-  }, [evState.currentSpeed, evState.batteryPercent]);
+  }, [evState.currentSpeed, evState.batteryPercent, isSimulated]);
 
   const handleDestinationSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,7 +141,6 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#050505] p-4 gap-4 overflow-hidden">
-      {/* HUD Header */}
       <header className="flex justify-between items-center px-6 py-3 glass-panel rounded-2xl h-20 shadow-xl border-b border-white/5">
         <div className="flex items-center gap-6">
           <div className="flex flex-col min-w-[100px]">
@@ -174,8 +177,15 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-10">
+           {isSimulated && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></div>
+                <span className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Simulated Mode</span>
+              </div>
+           )}
+
            {needsRecharge && (
-             <div className="bg-orange-500/20 border border-orange-500/40 px-4 py-2 rounded-xl flex items-center gap-3 animate-pulse shadow-[0_0_15px_rgba(249,115,22,0.1)]">
+             <div className="bg-orange-500/20 border border-orange-500/40 px-4 py-2 rounded-xl flex items-center gap-3 animate-pulse">
                 <div className="p-1.5 bg-orange-500 rounded-lg">
                   <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                 </div>
@@ -242,10 +252,10 @@ const App: React.FC = () => {
                       : `Trip requires multiple charging stops. Total stops added: ${numStops}.`
                   }
                 </p>
-                {needsRecharge && (
-                   <p className="text-[9px] text-orange-500/80 mt-1 font-bold uppercase tracking-wider">
-                     Recharge required after 100 km to continue trip.
-                   </p>
+                {isSimulated && (
+                  <p className="text-[9px] text-yellow-500/80 mt-1 font-bold uppercase tracking-wider">
+                    API Quota Limit Reached. Using Simulated Local Heuristics.
+                  </p>
                 )}
               </div>
           </div>
