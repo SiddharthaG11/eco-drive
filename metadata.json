@@ -1,0 +1,7 @@
+{
+  "name": "EV Eco-Navigator Pro",
+  "description": "A high-performance EV dashboard that optimizes routes based on elevation, traffic, and regenerative braking to ensure arrival with optimal battery life.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
