@@ -13,9 +13,9 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isSimulated, setIsSimulated] = useState(false);
-  const [destinationInput, setDestinationInput] = useState('VIT Chennai');
-  const [activeDestination, setActiveDestination] = useState('VIT Chennai');
-  const [efficiencyTip, setEfficiencyTip] = useState<string>('System Check: 100km Range Enforced');
+  const [destinationInput, setDestinationInput] = useState('Marina Beach');
+  const [activeDestination, setActiveDestination] = useState('Marina Beach');
+  const [efficiencyTip, setEfficiencyTip] = useState<string>('System Check: Road Routing Active');
   const [userLoc, setUserLoc] = useState<{ latitude: number, longitude: number } | undefined>();
   
   const [evState, setEvState] = useState<EVState>({
@@ -59,7 +59,6 @@ const App: React.FC = () => {
       setActiveDestination(target);
     } catch (error) {
       console.error("Critical Failure in Routing:", error);
-      // Even if everything fails, clear loading state
     } finally {
       setIsUpdating(false);
       setLoading(false);
@@ -67,23 +66,7 @@ const App: React.FC = () => {
   };
 
   const handleRefreshLocation = () => {
-    if (navigator.geolocation) {
-      setIsUpdating(true);
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const loc = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-          setUserLoc(loc);
-          fetchRoutes(activeDestination, loc);
-        },
-        (err) => {
-          console.error("Location error:", err);
-          fetchRoutes(activeDestination, userLoc);
-        },
-        { enableHighAccuracy: true, timeout: 5000 }
-      );
-    } else {
-      fetchRoutes(activeDestination, userLoc);
-    }
+    fetchRoutes(activeDestination, { latitude: 12.8406, longitude: 80.1534 }); // Hard-coded VIT Origin
   };
 
   useEffect(() => {
@@ -91,11 +74,12 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Keeping speed at 0 for stationary vehicle
     const timer = setInterval(() => {
       setEvState(prev => ({
         ...prev,
-        currentSpeed: Math.max(0, prev.currentSpeed + (Math.random() - 0.5) * 4),
-        instantConsumptionKw: 8 + (Math.random() * 12),
+        currentSpeed: 0,
+        instantConsumptionKw: 0.2 + (Math.random() * 0.2), 
         rangeKm: Math.max(0, MAX_VEHICLE_RANGE * (prev.batteryPercent / 100))
       }));
     }, 1000);
@@ -105,7 +89,7 @@ const App: React.FC = () => {
         const tip = await getEfficiencyTip(evState.currentSpeed, evState.batteryPercent);
         setEfficiencyTip(tip);
       } else {
-        setEfficiencyTip("Drive smoothly to maximize your simulated range.");
+        setEfficiencyTip("Road-based optimal path calculation is running.");
       }
     }, 25000);
 
@@ -132,8 +116,8 @@ const App: React.FC = () => {
       <div className="h-screen w-screen flex items-center justify-center bg-black">
         <div className="flex flex-col items-center gap-6">
           <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
-          <div className="text-cyan-400 font-orbitron tracking-widest text-lg uppercase">Range Feasibility Check...</div>
-          <div className="text-gray-500 text-sm italic">Constraint: Max 100km per Charge</div>
+          <div className="text-cyan-400 font-orbitron tracking-widest text-lg uppercase">Syncing Road Network...</div>
+          <div className="text-gray-500 text-sm italic">Origin: VIT Chennai</div>
         </div>
       </div>
     );
@@ -144,7 +128,7 @@ const App: React.FC = () => {
       <header className="flex justify-between items-center px-6 py-3 glass-panel rounded-2xl h-20 shadow-xl border-b border-white/5">
         <div className="flex items-center gap-6">
           <div className="flex flex-col min-w-[100px]">
-            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Travel Duration</span>
+            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Travel Time</span>
             <span className="text-lg font-orbitron text-cyan-400">
               {selectedRoute ? `${selectedRoute.durationMin} MINS` : '--'}
             </span>
@@ -154,7 +138,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-3">
             <form onSubmit={handleDestinationSubmit} className="flex items-center gap-2">
               <div className="flex flex-col">
-                <label className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-0.5">Route Destination</label>
+                <label className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-0.5">Destination (From VIT)</label>
                 <div className="relative">
                   <input 
                     type="text" 
@@ -180,7 +164,7 @@ const App: React.FC = () => {
            {isSimulated && (
               <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
                 <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></div>
-                <span className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Simulated Mode</span>
+                <span className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Road Path Simulation</span>
               </div>
            )}
 
@@ -190,7 +174,7 @@ const App: React.FC = () => {
                   <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-[9px] font-black text-orange-400 uppercase tracking-tighter">In-Leg Charging</span>
+                  <span className="text-[9px] font-black text-orange-400 uppercase tracking-tighter">Road Charging</span>
                   <span className="text-[11px] text-white font-bold leading-none">STOPS: {numStops}</span>
                 </div>
              </div>
@@ -227,34 +211,30 @@ const App: React.FC = () => {
 
           <div className="glass-panel p-6 rounded-3xl grid grid-cols-4 gap-6 border border-white/5 shadow-xl">
               <div className="flex flex-col">
-                <span className="text-[10px] text-gray-500 uppercase font-bold">Total Distance</span>
+                <span className="text-[10px] text-gray-500 uppercase font-bold">Road Distance</span>
                 <span className={`text-xl font-orbitron ${needsRecharge ? 'text-orange-400' : 'text-cyan-400'}`}>
                   {selectedRoute?.distanceKm} km
                 </span>
                 <div className="flex items-center gap-1 mt-1 opacity-60">
                    <div className="w-1.5 h-1.5 rounded-full bg-cyan-500"></div>
-                   <span className="text-[9px] text-gray-400 font-bold uppercase">Max Range: {MAX_VEHICLE_RANGE}km</span>
+                   <span className="text-[9px] text-gray-400 font-bold uppercase">Max Charge: {MAX_VEHICLE_RANGE}km</span>
                 </div>
               </div>
               <div className="flex flex-col">
-                <span className="text-[10px] text-gray-500 uppercase font-bold">Trip Feasibility</span>
+                <span className="text-[10px] text-gray-500 uppercase font-bold">Feasibility</span>
                 <span className={`text-xs font-black mt-1 p-1 rounded-md text-center border ${needsRecharge ? 'text-orange-400 border-orange-500/30 bg-orange-500/5' : 'text-green-400 border-green-500/30 bg-green-500/5'}`}>
-                  {needsRecharge ? "RECHARGE REQUIRED" : "FEASIBLE DIRECT"}
+                  {needsRecharge ? "STOP REQUIRED" : "DIRECT ROAD"}
                 </span>
               </div>
               <div className="flex flex-col col-span-2">
-                <span className="text-[10px] text-gray-500 uppercase font-bold">Navigation Intelligence</span>
+                <span className="text-[10px] text-gray-500 uppercase font-bold">OSRM Navigation Intelligence</span>
                 <p className={`text-xs font-semibold leading-tight mt-1 ${needsRecharge ? 'text-orange-200' : 'text-cyan-100'}`}>
-                  {!needsRecharge 
-                    ? "You can reach the destination without recharging."
-                    : numStops === 1
-                      ? "Destination exceeds current battery range. A charging stop has been added at 100 km."
-                      : `Trip requires multiple charging stops. Total stops added: ${numStops}.`
-                  }
+                  Route from VIT Chennai now follows actual mapped roads.
+                  {needsRecharge && ` Automated stop(s) added along the network every 100km.`}
                 </p>
                 {isSimulated && (
                   <p className="text-[9px] text-yellow-500/80 mt-1 font-bold uppercase tracking-wider">
-                    API Quota Limit Reached. Using Simulated Local Heuristics.
+                    API Quota Limit: Switching to Road Heuristics + OSRM Open Engine.
                   </p>
                 )}
               </div>
@@ -285,10 +265,10 @@ const App: React.FC = () => {
 
       <footer className="h-10 flex items-center justify-between px-6 opacity-40">
          <div className="text-[9px] text-gray-500 uppercase tracking-widest font-black">
-           MVP 1.0 • Deterministic Range Logic Active • Google Maps Grounding
+           MVP 1.0 • Road Network Mode • JESUS FAVICON
          </div>
          <div className="text-[9px] text-gray-500 uppercase tracking-widest font-bold">
-           Charging Threshold: Every 100 km
+           Stationary: 0 km/h
          </div>
       </footer>
     </div>

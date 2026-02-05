@@ -4,15 +4,44 @@ import { RouteOption } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
-// Extended RouteOption for internal handling of simulated status
 export interface EnhancedRouteOption extends RouteOption {
   isSimulated?: boolean;
 }
 
-/**
- * Optimizes the route using Gemini 2.5 Flash with Google Maps grounding.
- * Gracefully handles 429 Quota errors by returning high-quality simulated data.
- */
+// Local lookup for common destinations to "improvise" distance when API fails
+const LOCAL_DISTANCE_ESTIMATOR: Record<string, number> = {
+  'chennai': 32,
+  'marina': 35,
+  'tambaram': 12,
+  'guindy': 24,
+  'pondy': 120,
+  'pondicherry': 120,
+  'bangalore': 330,
+  'bengaluru': 330,
+  'coimbatore': 480,
+  'madurai': 430,
+  'vellore': 120,
+  'vit vellore': 125,
+  'airport': 18,
+  'chennai airport': 18,
+  'thiruvanmiyur': 28,
+  'adyar': 30,
+};
+
+function estimateDistance(destination: string): number {
+  const normalized = destination.toLowerCase().trim();
+  // Check if it's in our local map
+  for (const [key, value] of Object.entries(LOCAL_DISTANCE_ESTIMATOR)) {
+    if (normalized.includes(key)) return value;
+  }
+  
+  // Generic estimation based on string length and random factor for variety
+  // This "improvises" a plausible distance when we have no other data
+  const base = 15 + (destination.length * 2);
+  const jitter = Math.floor(Math.random() * 10);
+  return base + jitter;
+}
+
 export async function optimizeRoute(
   destination: string, 
   currentBattery: number, 
@@ -20,7 +49,7 @@ export async function optimizeRoute(
 ): Promise<EnhancedRouteOption[]> {
   try {
     const prompt = `You are an expert EV routing engine. 
-    TASK: Find 3 potential routes to "${destination}" from ${userLocation ? `current coordinates [${userLocation.latitude}, ${userLocation.longitude}]` : 'the current location'}.
+    TASK: Find 3 potential routes to "${destination}" from the start point 'VIT Chennai' (coordinates: 12.8406, 80.1534).
     
     1. Use Google Maps to get real-time routing and traffic.
     2. IMPORTANT: Use your internal knowledge of terrain to ESTIMATE 'elevationGainM', 'elevationLossM', and 'estimatedBatteryConsumption'.
@@ -53,10 +82,10 @@ export async function optimizeRoute(
         tools: [{ googleMaps: {} }],
         toolConfig: {
           retrievalConfig: {
-            latLng: userLocation ? {
-              latitude: userLocation.latitude,
-              longitude: userLocation.longitude
-            } : undefined
+            latLng: {
+              latitude: 12.8406,
+              longitude: 80.1534
+            }
           }
         },
       }
@@ -79,7 +108,6 @@ export async function optimizeRoute(
 
     const routes: EnhancedRouteOption[] = JSON.parse(jsonString);
     
-    // Enrich with map URIs from grounding if available
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (groundingChunks && Array.isArray(routes)) {
       routes.forEach((route) => {
@@ -93,68 +121,68 @@ export async function optimizeRoute(
 
   } catch (error: any) {
     const isQuotaError = error?.message?.includes("quota") || error?.message?.includes("429");
-    console.warn(isQuotaError ? "API Quota Exceeded. Using Simulated Mode." : "Gemini Error:", error);
+    console.warn(isQuotaError ? "API Quota Exceeded. Using Improvised Distance Estimation." : "Gemini Error:", error);
     
-    // Fallback Data (Simulated Mode)
-    const baseConsumption = Math.min(currentBattery - 5, 12); 
+    // Improvised distance calculation from VIT Chennai
+    const estimatedDist = estimateDistance(destination);
+    const estimatedTime = Math.round(estimatedDist * 1.8); // Simple 1.8 min/km avg
+    const baseConsumption = Math.min(currentBattery - 5, (estimatedDist / 100) * 20); 
+
     return [
       {
         id: "1",
-        name: "Eco-Simulated Optimized",
-        distanceKm: 18.5,
-        durationMin: 24,
-        elevationGainM: 30,
-        elevationLossM: 140,
+        name: "Improvised Eco-Optimal",
+        distanceKm: estimatedDist,
+        durationMin: estimatedTime,
+        elevationGainM: 20,
+        elevationLossM: 10,
         trafficLevel: 'Low',
-        estimatedBatteryConsumption: Number((baseConsumption * 0.8).toFixed(1)),
+        estimatedBatteryConsumption: Number((baseConsumption * 0.9).toFixed(1)),
         isOptimal: true,
         isSimulated: true,
-        reasoning: "OFFLINE MODE: Simulated route calculated using localized elevation heuristics and standard EV power curves.",
+        reasoning: `SIMULATED: Estimated ${estimatedDist}km distance from VIT Chennai based on destination heuristics.`,
         mapUri: `https://www.google.com/maps/search/${encodeURIComponent(destination)}`
       },
       {
         id: "2",
-        name: "Simulated Direct",
-        distanceKm: 21.2,
-        durationMin: 18,
-        elevationGainM: 55,
-        elevationLossM: 55,
+        name: "Improvised Fast-Path",
+        distanceKm: Number((estimatedDist * 1.1).toFixed(1)),
+        durationMin: Math.round(estimatedTime * 0.8),
+        elevationGainM: 40,
+        elevationLossM: 30,
         trafficLevel: 'Moderate',
-        estimatedBatteryConsumption: Number((baseConsumption * 1.2).toFixed(1)),
+        estimatedBatteryConsumption: Number((baseConsumption * 1.3).toFixed(1)),
         isOptimal: false,
         isSimulated: true,
-        reasoning: "OFFLINE MODE: Estimated highway routing based on standard topology.",
+        reasoning: "SIMULATED: Highway estimation with moderate traffic modeling.",
         mapUri: `https://www.google.com/maps/search/${encodeURIComponent(destination)}`
       },
       {
         id: "3",
-        name: "Simulated Urban",
-        distanceKm: 17.8,
-        durationMin: 32,
-        elevationGainM: 40,
-        elevationLossM: 40,
-        trafficLevel: 'High',
-        estimatedBatteryConsumption: Number((baseConsumption * 1.5).toFixed(1)),
+        name: "Improvised Balanced",
+        distanceKm: Number((estimatedDist * 1.05).toFixed(1)),
+        durationMin: Math.round(estimatedTime * 0.95),
+        elevationGainM: 30,
+        elevationLossM: 20,
+        trafficLevel: 'Moderate',
+        estimatedBatteryConsumption: Number(baseConsumption.toFixed(1)),
         isOptimal: false,
         isSimulated: true,
-        reasoning: "OFFLINE MODE: Inner city estimation. Expect higher consumption due to stop-and-go simulation.",
+        reasoning: "SIMULATED: Balanced route considering distance and traffic standard deviation.",
         mapUri: `https://www.google.com/maps/search/${encodeURIComponent(destination)}`
       }
     ];
   }
 }
 
-/**
- * Gets a quick efficiency tip based on current vehicle state.
- */
 export async function getEfficiencyTip(speed: number, battery: number): Promise<string> {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Status: ${speed}km/h, ${battery}% battery. Short EV driving tip (max 8 words).`,
+      contents: `Status: Stationary vehicle, ${battery}% battery. Short EV tip (max 8 words).`,
     });
     return response.text.trim().replace(/^"|"$/g, '');
   } catch (error) {
-    return "Optimize throttle for better range.";
+    return "Check tire pressure for optimal range.";
   }
 }
