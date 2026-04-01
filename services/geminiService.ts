@@ -49,11 +49,12 @@ export async function optimizeRoute(
 ): Promise<EnhancedRouteOption[]> {
   try {
     const prompt = `You are an expert EV routing engine. 
-    TASK: Find 3 potential routes to "${destination}" from the start point 'VIT Chennai' (coordinates: 12.8406, 80.1534).
+    TASK: Find 3 potential REAL-WORLD routes to "${destination}" from the start point (coordinates: ${userLocation?.latitude || 12.8406}, ${userLocation?.longitude || 80.1534}).
     
-    1. Use Google Maps to get real-time routing and traffic.
-    2. IMPORTANT: Use your internal knowledge of terrain to ESTIMATE 'elevationGainM', 'elevationLossM', and 'estimatedBatteryConsumption'.
-    3. Ensure one route is "Eco-Optimal" (best for range), one is "Fastest", and one is "Balanced".
+    1. Use the Google Maps tool to get PRECISE real-time routing, current traffic conditions, and exact distances.
+    2. Use your internal knowledge of terrain to ESTIMATE 'elevationGainM', 'elevationLossM', 'elevationProfile' (array of 10 numbers representing elevation in meters along the route), and 'batterySavedPercent' (estimated percentage of battery saved due to regenerative braking or eco-routing).
+    3. Ensure one route is "Eco-Optimal" (best for range), one is "Fastest" (based on current traffic), and one is "Balanced".
+    4. The 'distanceKm' and 'durationMin' MUST be based on the actual Google Maps data retrieved.
 
     OUTPUT FORMAT: Return ONLY a raw JSON array. Do not apologize. 
     
@@ -66,25 +67,27 @@ export async function optimizeRoute(
         "durationMin": number,
         "elevationGainM": number,
         "elevationLossM": number,
+        "elevationProfile": number[],
+        "batterySavedPercent": number,
         "trafficLevel": "Low" | "Moderate" | "High",
         "estimatedBatteryConsumption": number,
         "isOptimal": boolean,
-        "reasoning": "Explain why this route is good for an EV"
+        "reasoning": "Explain why this route is good for an EV based on real traffic and terrain"
       }
     ]
 
     Current Vehicle Battery: ${currentBattery}%`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
         tools: [{ googleMaps: {} }],
         toolConfig: {
           retrievalConfig: {
             latLng: {
-              latitude: 12.8406,
-              longitude: 80.1534
+              latitude: userLocation?.latitude || 12.8406,
+              longitude: userLocation?.longitude || 80.1534
             }
           }
         },
@@ -136,6 +139,8 @@ export async function optimizeRoute(
         durationMin: estimatedTime,
         elevationGainM: 20,
         elevationLossM: 10,
+        elevationProfile: [10, 15, 20, 25, 20, 15, 10, 5, 10, 15],
+        batterySavedPercent: 2.5,
         trafficLevel: 'Low',
         estimatedBatteryConsumption: Number((baseConsumption * 0.9).toFixed(1)),
         isOptimal: true,
@@ -150,6 +155,8 @@ export async function optimizeRoute(
         durationMin: Math.round(estimatedTime * 0.8),
         elevationGainM: 40,
         elevationLossM: 30,
+        elevationProfile: [10, 20, 40, 30, 20, 10, 20, 30, 40, 20],
+        batterySavedPercent: 1.2,
         trafficLevel: 'Moderate',
         estimatedBatteryConsumption: Number((baseConsumption * 1.3).toFixed(1)),
         isOptimal: false,
@@ -164,6 +171,8 @@ export async function optimizeRoute(
         durationMin: Math.round(estimatedTime * 0.95),
         elevationGainM: 30,
         elevationLossM: 20,
+        elevationProfile: [10, 15, 25, 30, 25, 20, 15, 10, 15, 20],
+        batterySavedPercent: 1.8,
         trafficLevel: 'Moderate',
         estimatedBatteryConsumption: Number(baseConsumption.toFixed(1)),
         isOptimal: false,

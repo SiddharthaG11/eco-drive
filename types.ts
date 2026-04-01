@@ -12,6 +12,8 @@ export interface RouteOption {
   durationMin: number;
   elevationGainM: number;
   elevationLossM: number;
+  elevationProfile?: number[]; // Elevation points along the route
+  batterySavedPercent?: number; // Estimated battery saved due to regen/eco-routing
   trafficLevel: 'Low' | 'Moderate' | 'High';
   estimatedBatteryConsumption: number; // in percentage
   isOptimal: boolean;

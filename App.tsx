@@ -66,7 +66,25 @@ const App: React.FC = () => {
   };
 
   const handleRefreshLocation = () => {
-    fetchRoutes(activeDestination, { latitude: 12.8406, longitude: 80.1534 }); // Hard-coded VIT Origin
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const loc = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+          setUserLoc(loc);
+          fetchRoutes(activeDestination, loc);
+        },
+        (error) => {
+          console.warn("Geolocation failed, using default VIT location:", error);
+          const defaultLoc = { latitude: 12.8406, longitude: 80.1534 };
+          setUserLoc(defaultLoc);
+          fetchRoutes(activeDestination, defaultLoc);
+        }
+      );
+    } else {
+      const defaultLoc = { latitude: 12.8406, longitude: 80.1534 };
+      setUserLoc(defaultLoc);
+      fetchRoutes(activeDestination, defaultLoc);
+    }
   };
 
   useEffect(() => {
@@ -117,7 +135,7 @@ const App: React.FC = () => {
         <div className="flex flex-col items-center gap-6">
           <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
           <div className="text-cyan-400 font-orbitron tracking-widest text-lg uppercase">Syncing Road Network...</div>
-          <div className="text-gray-500 text-sm italic">Origin: VIT Chennai</div>
+          <div className="text-gray-500 text-sm italic">Calculating Optimal Path</div>
         </div>
       </div>
     );
@@ -138,7 +156,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-3">
             <form onSubmit={handleDestinationSubmit} className="flex items-center gap-2">
               <div className="flex flex-col">
-                <label className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-0.5">Destination (From VIT)</label>
+                <label className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-0.5">Destination</label>
                 <div className="relative">
                   <input 
                     type="text" 
@@ -206,6 +224,7 @@ const App: React.FC = () => {
               selectedId={selectedRouteId} 
               onSelect={setSelectedRouteId} 
               destinationName={activeDestination}
+              startLoc={userLoc}
             />
           </div>
 
@@ -221,15 +240,31 @@ const App: React.FC = () => {
                 </div>
               </div>
               <div className="flex flex-col">
-                <span className="text-[10px] text-gray-500 uppercase font-bold">Feasibility</span>
-                <span className={`text-xs font-black mt-1 p-1 rounded-md text-center border ${needsRecharge ? 'text-orange-400 border-orange-500/30 bg-orange-500/5' : 'text-green-400 border-green-500/30 bg-green-500/5'}`}>
-                  {needsRecharge ? "STOP REQUIRED" : "DIRECT ROAD"}
-                </span>
+                <span className="text-[10px] text-gray-500 uppercase font-bold">Terrain Profile</span>
+                <div className="flex items-center gap-3 mt-1">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-gray-400 uppercase font-bold">Gain</span>
+                    <span className="text-sm font-orbitron text-red-400">+{selectedRoute?.elevationGainM}m</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-gray-400 uppercase font-bold">Loss</span>
+                    <span className="text-sm font-orbitron text-green-400">-{selectedRoute?.elevationLossM}m</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-gray-500 uppercase font-bold">Eco Recovery</span>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xl font-orbitron text-green-400">
+                    {selectedRoute?.batterySavedPercent || 0}%
+                  </span>
+                  <span className="text-[9px] text-green-500/80 font-black uppercase leading-tight">Battery<br/>Recovered</span>
+                </div>
               </div>
               <div className="flex flex-col col-span-2">
                 <span className="text-[10px] text-gray-500 uppercase font-bold">OSRM Navigation Intelligence</span>
                 <p className={`text-xs font-semibold leading-tight mt-1 ${needsRecharge ? 'text-orange-200' : 'text-cyan-100'}`}>
-                  Route from VIT Chennai now follows actual mapped roads.
+                  Route now follows actual mapped roads from your current position.
                   {needsRecharge && ` Automated stop(s) added along the network every 100km.`}
                 </p>
                 {isSimulated && (
@@ -265,7 +300,7 @@ const App: React.FC = () => {
 
       <footer className="h-10 flex items-center justify-between px-6 opacity-40">
          <div className="text-[9px] text-gray-500 uppercase tracking-widest font-black">
-           MVP 1.0 • Road Network Mode • JESUS FAVICON
+           MVP 1.0 • Road Network Mode
          </div>
          <div className="text-[9px] text-gray-500 uppercase tracking-widest font-bold">
            Stationary: 0 km/h
